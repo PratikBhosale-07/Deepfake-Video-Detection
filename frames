@@ -1,0 +1,223 @@
+import os
+import cv2
+import pandas as pd
+import json
+from datetime import datetime
+
+# ---------- CONFIGURATION ----------
+# Path to dataset videos
+VIDEO_PATH = "dataset"   # contains 'real/' and 'fake/' subfolders
+FRAME_PATH = "dataset/frames" # output folder for extracted frames
+FPS = 5                       # extract 5 frames per second
+PROGRESS_FILE = "extraction_progress.json"  # file to track progress
+
+# Create output directories
+os.makedirs(os.path.join(FRAME_PATH, "real"), exist_ok=True)
+os.makedirs(os.path.join(FRAME_PATH, "fake"), exist_ok=True)
+
+# Store metadata (frame path, label)
+metadata = []
+
+def load_progress():
+    """Load progress from JSON file"""
+    if os.path.exists(PROGRESS_FILE):
+        with open(PROGRESS_FILE, 'r') as f:
+            return json.load(f)
+    return {
+        "real": {"processed_videos": [], "total_processed": 0},
+        "fake": {"processed_videos": [], "total_processed": 0},
+        "last_updated": None
+    }
+
+def save_progress(progress):
+    """Save progress to JSON file"""
+    progress["last_updated"] = datetime.now().isoformat()
+    with open(PROGRESS_FILE, 'w') as f:
+        json.dump(progress, f, indent=2)
+
+def get_user_input():
+    """Get category and number of videos to process from user"""
+    # Get category selection
+    while True:
+        print("\n📂 Which category would you like to process?")
+        print("1. Real videos")
+        print("2. Fake videos")
+        print("3. Both (real and fake)")
+        
+        choice = input("\nEnter your choice (1/2/3): ").strip()
+        
+        if choice == "1":
+            category = "real"
+            break
+        elif choice == "2":
+            category = "fake"
+            break
+        elif choice == "3":
+            category = "both"
+            break
+        else:
+            print("❌ Please enter 1, 2, or 3.")
+    
+    # Get number of videos
+    while True:
+        try:
+            if category == "both":
+                num_videos = int(input(f"\n🎬 How many videos would you like to process from EACH category? "))
+            else:
+                num_videos = int(input(f"\n🎬 How many {category} videos would you like to process? "))
+            
+            if num_videos > 0:
+                return category, num_videos
+            else:
+                print("❌ Please enter a positive number.")
+        except ValueError:
+            print("❌ Please enter a valid number.")
+
+def extract_frames(video_file, label, out_dir, fps=5):
+    cap = cv2.VideoCapture(video_file)
+    if not cap.isOpened():
+        print(f"❌ Cannot open {video_file}")
+        return
+    
+    # Get original video FPS
+    frame_rate = cap.get(cv2.CAP_PROP_FPS)
+    interval = int(frame_rate / fps) if frame_rate > fps else 1
+    
+    count, saved = 0, 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if count % interval == 0:  # pick frame every "interval"
+            filename = f"{os.path.splitext(os.path.basename(video_file))[0]}_frame{saved}.jpg"
+            filepath = os.path.join(out_dir, filename)
+            cv2.imwrite(filepath, frame)
+            metadata.append([filepath, label])
+            saved += 1
+        count += 1
+    cap.release()
+    print(f"✅ Extracted {saved} frames from {video_file}")
+
+# ----------- MAIN PROCESS -----------
+def process_category(category, num_videos, progress):
+    """Process videos for a specific category"""
+    video_dir = os.path.join(VIDEO_PATH, category)
+    out_dir = os.path.join(FRAME_PATH, category)
+    
+    if not os.path.exists(video_dir):
+        print(f"❌ Directory not found: {video_dir}")
+        return 0
+    
+    # Get all videos in this category
+    all_videos = []
+    for video_file in os.listdir(video_dir):
+        if video_file.endswith((".mp4", ".avi", ".mov")):
+            full_path = os.path.join(video_dir, video_file)
+            all_videos.append((full_path, video_file))
+    
+    # Filter out already processed videos for this category
+    unprocessed_videos = [(path, name) for path, name in all_videos 
+                         if name not in progress[category]["processed_videos"]]
+    
+    print(f"\n� {category.upper()} VIDEOS:")
+    print(f"📁 Found {len(all_videos)} total {category} videos")
+    print(f"✅ Already processed: {progress[category]['total_processed']} {category} videos")
+    print(f"📋 Remaining: {len(unprocessed_videos)} {category} videos")
+    
+    if len(unprocessed_videos) == 0:
+        print(f"🎉 All {category} videos have already been processed!")
+        return 0
+    
+    # Process the requested number of videos
+    videos_to_process = unprocessed_videos[:num_videos]
+    
+    if len(videos_to_process) == 0:
+        print(f"⚠️ No {category} videos to process")
+        return 0
+    
+    print(f"\n🚀 Processing {len(videos_to_process)} {category} videos...")
+    print("=" * 50)
+    
+    processed_count = 0
+    for video_path, video_name in videos_to_process:
+        print(f"\n📹 Processing: {video_name} ({category})")
+        
+        # Extract frames
+        extract_frames(video_path, category, out_dir, FPS)
+        
+        # Update progress for this category
+        progress[category]["processed_videos"].append(video_name)
+        progress[category]["total_processed"] += 1
+        processed_count += 1
+        
+        # Save progress after each video (in case of interruption)
+        save_progress(progress)
+        
+        print(f"✅ Progress: {processed_count}/{len(videos_to_process)} {category} videos completed")
+    
+    return processed_count
+
+def main():
+    # Load existing progress
+    progress = load_progress()
+    
+    # Display current status
+    total_real = progress["real"]["total_processed"]
+    total_fake = progress["fake"]["total_processed"]
+    
+    print("📊 CURRENT STATUS:")
+    print(f"🟢 Real videos processed: {total_real}")
+    print(f"� Fake videos processed: {total_fake}")
+    if progress["last_updated"]:
+        print(f"🕒 Last updated: {progress['last_updated']}")
+    else:
+        print("🆕 Starting fresh extraction process")
+    
+    # Get user input for category and number of videos to process
+    category, num_videos_to_process = get_user_input()
+    
+    total_processed = 0
+    
+    if category == "both":
+        # Process both categories
+        print(f"\n🎯 Processing {num_videos_to_process} videos from EACH category")
+        
+        real_processed = process_category("real", num_videos_to_process, progress)
+        fake_processed = process_category("fake", num_videos_to_process, progress)
+        
+        total_processed = real_processed + fake_processed
+        
+    else:
+        # Process single category
+        print(f"\n🎯 Processing {num_videos_to_process} {category} videos")
+        total_processed = process_category(category, num_videos_to_process, progress)
+    
+    # Final summary
+    print("\n" + "=" * 60)
+    print("🎉 EXTRACTION COMPLETE!")
+    print("=" * 60)
+    print(f"📊 Videos processed this session: {total_processed}")
+    print(f"🟢 Total real videos processed: {progress['real']['total_processed']}")
+    print(f"🔴 Total fake videos processed: {progress['fake']['total_processed']}")
+    print(f"📈 Grand total: {progress['real']['total_processed'] + progress['fake']['total_processed']}")
+    
+    if not metadata:
+        print("📂 No new frames extracted, metadata unchanged")
+        return
+    
+    # Load existing metadata if it exists
+    metadata_file = os.path.join(FRAME_PATH, "metadata.csv")
+    if os.path.exists(metadata_file):
+        existing_df = pd.read_csv(metadata_file)
+        new_df = pd.DataFrame(metadata, columns=["filename", "label"])
+        combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+    else:
+        combined_df = pd.DataFrame(metadata, columns=["filename", "label"])
+    
+    # Save metadata as CSV
+    combined_df.to_csv(metadata_file, index=False)
+    print(f"📂 Metadata updated at: {metadata_file}")
+    print(f"📊 Total frames in dataset: {len(combined_df)}")
+
+if __name__ == "__main__":
+    main()

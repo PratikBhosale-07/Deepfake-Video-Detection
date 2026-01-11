@@ -1,0 +1,14 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Jupyter notebooks
+*.ipynb text eol=lf
+
+# Python files
+*.py text eol=lf
+
+# Documentation
+*.md text eol=lf
+
+# Windows specific files
+*.bat text eol=crlf
