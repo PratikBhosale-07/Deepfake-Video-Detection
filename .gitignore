@@ -67,3 +67,9 @@ logs/
 *.mov
 *.mkv
 DEMO VIDEO/
+
+# Project documentation (generated files)
+PROJECT_DOCUMENTATION.md
+Deepfake_Detection_Project_Documentation.pdf
+generate_pdf.py
+generate_pdf_simple.py
