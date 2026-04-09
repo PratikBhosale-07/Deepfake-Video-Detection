@@ -9,7 +9,6 @@ import torch
 import numpy as np
 from torchvision import models
 import torch.nn as nn
-from mtcnn import MTCNN
 from PIL import Image
 from torchvision import transforms
 import tempfile
@@ -43,15 +42,17 @@ class CNN_LSTM(nn.Module):
 
 @st.cache_resource
 def load_model_and_detector():
-    """Load model and MTCNN detector (cached)"""
+    """Load model and OpenCV face detector (cached)"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     model = CNN_LSTM().to(device)
     model.load_state_dict(torch.load("model2_cnn_lstm.pth", map_location=device))
     model.eval()
     
-    # MTCNN detector (TensorFlow-based, no parameters needed)
-    detector = MTCNN()
+    # OpenCV Haar cascade avoids TensorFlow runtime conflicts.
+    detector = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    )
     
     return model, detector, device
 
@@ -83,11 +84,23 @@ def extract_faces(video_path, seq_len=10):
             break
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        detections = detector.detect_faces(rgb)
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        detections = detector.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(60, 60)
+        )
 
-        if detections:
-            x, y, w, h = detections[0]['box']
-            face = rgb[y:y+h, x:x+w]
+        if len(detections) > 0:
+            # Pick the largest detected face.
+            x, y, w, h = max(detections, key=lambda b: b[2] * b[3])
+            x = max(0, x)
+            y = max(0, y)
+            x2 = min(rgb.shape[1], x + w)
+            y2 = min(rgb.shape[0], y + h)
+
+            face = rgb[y:y2, x:x2]
             face = Image.fromarray(face)
             face = transform(face)
             faces.append(face)
@@ -172,7 +185,7 @@ with st.sidebar:
     st.write("This app uses a CNN+LSTM deep learning model to detect deepfake videos.")
     
     st.subheader("How it works:")
-    st.write("1. **Face Detection**: Extracts faces from video frames using MTCNN")
+    st.write("1. **Face Detection**: Extracts faces from video frames using OpenCV")
     st.write("2. **Feature Extraction**: Uses ResNet50 CNN to extract features")
     st.write("3. **Temporal Analysis**: LSTM analyzes temporal patterns")
     st.write("4. **Classification**: Predicts REAL or FAKE")
