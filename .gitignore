@@ -28,6 +28,7 @@ wheels/
 
 # PyTorch models (large files)
 *.pth
+!model2_cnn_lstm.pth
 *.pt
 *.ckpt
 

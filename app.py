@@ -13,6 +13,10 @@ from PIL import Image
 from torchvision import transforms
 import tempfile
 import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "model2_cnn_lstm.pth"
 
 # ============================================================
 # Model Definition
@@ -21,7 +25,8 @@ import os
 class CNN_LSTM(nn.Module):
     def __init__(self, hidden_dim=256):
         super(CNN_LSTM, self).__init__()
-        resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+        # We load task-specific weights from checkpoint, so ImageNet download is not needed.
+        resnet = models.resnet50(weights=None)
         self.cnn = nn.Sequential(*list(resnet.children())[:-1])
         self.lstm = nn.LSTM(2048, hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, 2)
@@ -44,9 +49,13 @@ class CNN_LSTM(nn.Module):
 def load_model_and_detector():
     """Load model and OpenCV face detector (cached)"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if not MODEL_PATH.exists():
+        st.error(f"Model file not found: {MODEL_PATH.name}")
+        st.stop()
     
     model = CNN_LSTM().to(device)
-    model.load_state_dict(torch.load("model2_cnn_lstm.pth", map_location=device))
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     model.eval()
     
     # OpenCV Haar cascade avoids TensorFlow runtime conflicts.
